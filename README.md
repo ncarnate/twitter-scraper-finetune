@@ -2,7 +2,11 @@
 
 Pipeline for generating AI character files and training datasets by scraping public figures' online presence across Twitter and blogs.
 
-> ⚠️ **IMPORTANT**: Create a new Twitter account for this tool. DO NOT use your main account as it may trigger Twitter's automation detection and result in account restrictions.
+> ⚠️ **SECURITY WARNING**: 
+> - NEVER commit your `.env` file to version control
+> - Create a new Twitter account for this tool
+> - DO NOT use your main account as it may trigger Twitter's automation detection
+> - Add `.env` to your `.gitignore` file
 
 ## Setup
 
@@ -11,11 +15,12 @@ Pipeline for generating AI character files and training datasets by scraping pub
    npm install
    ```
 
-2. Copy the `.env.example` into a `.env` file:
+2. Copy the `.env.example` into a `.env` file and fill in your credentials:
    ```properties
    # (Required) Twitter Authentication
    TWITTER_USERNAME=     # your twitter username
    TWITTER_PASSWORD=     # your twitter password
+   TWITTER_EMAIL=        # your twitter email
 
    # (Optional) Blog Configuration
    BLOG_URLS_FILE=      # path to file containing blog URLs

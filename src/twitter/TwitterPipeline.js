@@ -389,16 +389,22 @@ async saveCookies() {
           timeout: 30000,
         });
 
-        await page.type(
-          'input[autocomplete="username"]',
-          process.env.TWITTER_USERNAME
-        );
+        // More reliable selectors
+        await page.waitForSelector('input[autocomplete="username"]');
+        await page.type('input[autocomplete="username"]', process.env.TWITTER_USERNAME);
         await this.randomDelay(500, 1000);
-        await page.click('div[role="button"]:not([aria-label])');
+        
+        // Use a more reliable next button selector
+        await page.waitForSelector('[data-testid="next_button"]');
+        await page.click('[data-testid="next_button"]');
+        
         await this.randomDelay(500, 1000);
         await page.type('input[type="password"]', process.env.TWITTER_PASSWORD);
         await this.randomDelay(500, 1000);
-        await page.click('div[role="button"][data-testid="LoginButton"]');
+        
+        await page.waitForSelector('[data-testid="LoginButton"]');
+        await page.click('[data-testid="LoginButton"]');
+        
         await page.waitForNavigation({ waitUntil: "networkidle0" });
 
         // Go directly to search
@@ -556,7 +562,7 @@ async saveCookies() {
 
       // Use fallback for replies if needed
       if (
-        allTweets.size < totalExpectedTweets * 0.8 &&
+        allTweets.size < Math.min(this.config.twitter.maxTweets, totalExpectedTweets) * 0.8 && 
         this.config.fallback.enabled
       ) {
         Logger.info("\n🔍 Collecting additional tweets via fallback...");
@@ -680,22 +686,21 @@ async saveCookies() {
       // Calculate final statistics
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       const tweetsPerMinute = (allTweets.length / (duration / 60)).toFixed(1);
-      const successRate = (
-        (allTweets.length /
-          (this.stats.requestCount + this.stats.fallbackCount)) *
-        100
-      ).toFixed(1);
+      const total_attempts = this.stats.requestCount + this.stats.fallbackCount;
+      const success_rate = total_attempts > 0 
+          ? ((allTweets.length / total_attempts) * 100).toFixed(1)
+          : '100.0';
 
       // Display final results
       Logger.stats("📈 Collection Results", {
         "Total Tweets": allTweets.length.toLocaleString(),
         "Original Tweets": analytics.directTweets.toLocaleString(),
-        Replies: analytics.replies.toLocaleString(),
-        Retweets: analytics.retweets.toLocaleString(),
+        "Replies": analytics.replies.toLocaleString(),
+        "Retweets": analytics.retweets.toLocaleString(),
         "Date Range": `${analytics.timeRange.start} to ${analytics.timeRange.end}`,
-        Runtime: `${duration} seconds`,
+        "Runtime": `${duration} seconds`,
         "Collection Rate": `${tweetsPerMinute} tweets/minute`,
-        "Success Rate": `${successRate}%`,
+        "Success Rate": `${success_rate}%`,
         "Rate Limit Hits": this.stats.rateLimitHits.toLocaleString(),
         "Fallback Collections": this.stats.fallbackCount.toLocaleString(),
         "Storage Location": chalk.gray(this.dataOrganizer.baseDir),
@@ -840,34 +845,59 @@ async saveCookies() {
 
   async cleanup() {
     try {
-      // Cleanup main scraper
-      if (this.scraper) {
-        await this.scraper.logout();
-        Logger.success("🔒 Logged out of primary system");
-      }
+        Logger.warn('\n🛑 Starting cleanup process...');
 
-      // Cleanup fallback system
-      if (this.cluster) {
-        await this.cluster.close();
-        Logger.success("🔒 Cleaned up fallback system");
-      }
+        // Save final stats first
+        try {
+            const finalStats = {
+                completed: true,
+                endTime: new Date().toISOString(),
+                runtime: {
+                    seconds: ((Date.now() - this.stats.startTime) / 1000).toFixed(1)
+                },
+                collection: {
+                    totalTweets: this.stats.uniqueTweets || 0,
+                    fallbackUsed: this.stats.fallbackUsed || false,
+                    fallbackCount: this.stats.fallbackCount || 0,
+                    rateLimitHits: this.stats.rateLimitHits || 0
+                }
+            };
 
-      await this.saveProgress(null, null, this.stats.uniqueTweets, {
-        completed: true,
-        endTime: new Date().toISOString(),
-        fallbackUsed: this.stats.fallbackUsed,
-        fallbackCount: this.stats.fallbackCount,
-        rateLimitHits: this.stats.rateLimitHits,
-      });
+            const statsPath = path.join(
+                this.dataOrganizer.baseDir,
+                'analytics',
+                'final_stats.json'
+            );
 
-      Logger.success("✨ Cleanup complete");
+            await fs.writeFile(
+                statsPath,
+                JSON.stringify(finalStats, null, 2)
+            );
+            Logger.success('📊 Saved final statistics');
+        } catch (statsError) {
+            Logger.warn(`⚠️  Could not save final statistics: ${statsError.message}`);
+        }
+
+        // Cleanup fallback system first
+        if (this.cluster) {
+            await this.cluster.close();
+            this.cluster = null; // Ensure it's nullified
+            Logger.success('🔒 Cleaned up fallback system');
+        }
+
+        // Then cleanup main scraper
+        if (this.scraper) {
+            await this.scraper.logout();
+            Logger.success('🔒 Logged out of primary system');
+        }
+
+        Logger.success('✨ Cleanup complete');
+        
+        // Force exit after cleanup
+        process.exit(0);
     } catch (error) {
-      Logger.warn(`⚠️  Cleanup error: ${error.message}`);
-      await this.saveProgress(null, null, this.stats.uniqueTweets, {
-        completed: true,
-        endTime: new Date().toISOString(),
-        error: error.message,
-      });
+        Logger.error(`❌ Cleanup error: ${error.message}`);
+        process.exit(1);
     }
   }
 }

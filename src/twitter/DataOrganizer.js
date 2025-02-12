@@ -50,6 +50,7 @@ class DataOrganizer {
       },
       meta: {
         nextToken: path.join(this.baseDir, 'meta', 'next_token.txt'),
+        progress: path.join(this.baseDir, 'meta', 'progress.json'),
       },
     };
   }
@@ -138,6 +139,18 @@ class DataOrganizer {
       const summary = this.generateSummary(tweets, analytics);
       await fs.writeFile(paths.exports.summary, summary, 'utf-8');
       Logger.success(`✅ Saved summary to ${paths.exports.summary}`);
+
+      // Save collection progress
+      await fs.writeFile(
+        paths.meta.progress,
+        JSON.stringify({
+          last_tweet_id: tweets[tweets.length - 1]?.id,
+          last_tweet_date: tweets[tweets.length - 1]?.timestamp,
+          total_tweets: tweets.length,
+          last_updated: new Date().toISOString()
+        }, null, 2),
+        'utf-8'
+      );
 
       return analytics;
     } catch (error) {
@@ -315,6 +328,58 @@ ${analytics.engagement.topTweets
 Raw data, analytics, and exports can be found in:
 **${this.baseDir}**
 `;
+  }
+
+  async load_existing_tweets() {
+    try {
+      const existing = await fs.readFile(this.getPaths().raw.tweets, 'utf-8');
+      return JSON.parse(existing);
+    } catch {
+      return [];
+    }
+  }
+
+  async save_tweet_batch(new_tweets) {
+    // Load existing
+    const existing_tweets = await this.load_existing_tweets();
+    
+    // Merge without duplicates using Map
+    const tweet_map = new Map();
+    
+    // Add existing tweets to map
+    existing_tweets.forEach(tweet => {
+      tweet_map.set(tweet.id, tweet);
+    });
+    
+    // Add new tweets, overwriting if newer version exists
+    new_tweets.forEach(tweet => {
+      tweet_map.set(tweet.id, tweet);
+    });
+
+    // Convert back to array and sort by date
+    const merged = Array.from(tweet_map.values())
+      .sort((a, b) => b.timestamp - a.timestamp);
+
+    // Save merged tweets
+    await fs.writeFile(
+      this.getPaths().raw.tweets,
+      JSON.stringify(merged, null, 2),
+      'utf-8'
+    );
+
+    // Save collection progress
+    await fs.writeFile(
+      this.getPaths().meta.progress,
+      JSON.stringify({
+        last_tweet_id: merged[merged.length - 1]?.id,
+        last_tweet_date: merged[merged.length - 1]?.timestamp,
+        total_tweets: merged.length,
+        last_updated: new Date().toISOString()
+      }, null, 2),
+      'utf-8'
+    );
+
+    return merged;
   }
 }
 
