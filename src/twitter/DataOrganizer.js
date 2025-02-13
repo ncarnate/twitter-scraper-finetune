@@ -39,9 +39,6 @@ class DataOrganizer {
         tweets: path.join(this.baseDir, 'raw', 'tweets.json'),
         urls: path.join(this.baseDir, 'raw', 'urls.txt'),
       },
-      processed: {
-        finetuning: path.join(this.baseDir, 'processed', 'finetuning.jsonl'),
-      },
       analytics: {
         stats: path.join(this.baseDir, 'analytics', 'stats.json'),
       },
@@ -115,25 +112,6 @@ class DataOrganizer {
         'utf-8'
       );
       Logger.success(`✅ Saved analytics to ${paths.analytics.stats}`);
-
-      // Generate and save fine-tuning data
-      const finetuningData = this.generateFinetuningData(tweets);
-      Logger.info(
-        `ℹ️  Generating fine-tuning data with ${finetuningData.length} entries`
-      );
-
-      if (finetuningData.length > 0) {
-        await fs.writeFile(
-          paths.processed.finetuning,
-          finetuningData.map((d) => JSON.stringify(d)).join('\n'),
-          'utf-8'
-        );
-        Logger.success(
-          `✅ Saved fine-tuning data to ${paths.processed.finetuning}`
-        );
-      } else {
-        Logger.warn('⚠️  No fine-tuning data to save.');
-      }
 
       // Generate and save summary
       const summary = this.generateSummary(tweets, analytics);
@@ -260,35 +238,6 @@ class DataOrganizer {
   }
 
   /**
-   * Generates fine-tuning data from tweets.
-   * @param {object[]} tweets - Array of tweet objects.
-   * @returns {object[]} fineTuningData - Array of fine-tuning data objects.
-   */
-  generateFinetuningData(tweets) {
-    return tweets
-      .filter(
-        (tweet) => !tweet.isRetweet && tweet.text && tweet.timestamp !== null
-      )
-      .map((tweet) => {
-        let cleanText = tweet.text
-          .replace(/(?:https?:\/\/|www\.)[^\s]+/g, '') // Remove URLs
-          .replace(/#[^\s#]+/g, '') // Remove Hashtags
-          .replace(/\s+/g, ' ')
-          .trim();
-
-        if (!cleanText) return null;
-
-        return {
-          text: cleanText,
-        };
-      })
-      .filter((entry) => {
-        if (!entry) return false;
-        return typeof entry.text === 'string' && entry.text.length > 0;
-      });
-  }
-
-  /**
    * Generates a summary of the collected data.
    * @param {object[]} tweets - Array of tweet objects.
    * @param {object} analytics - Generated analytics data.
@@ -380,6 +329,25 @@ Raw data, analytics, and exports can be found in:
     );
 
     return merged;
+  }
+
+  async get_collection_state() {
+    try {
+        const existing_tweets = await this.load_existing_tweets();
+        if (!existing_tweets.length) return null;
+
+        // Sort by timestamp (newest first)
+        existing_tweets.sort((a, b) => b.timestamp - a.timestamp);
+
+        return {
+            newest_tweet_timestamp: existing_tweets[0].timestamp,
+            oldest_tweet_timestamp: existing_tweets[existing_tweets.length - 1].timestamp,
+            total_tweets: existing_tweets.length,
+            last_updated: new Date().toISOString()
+        };
+    } catch {
+        return null;
+    }
   }
 }
 

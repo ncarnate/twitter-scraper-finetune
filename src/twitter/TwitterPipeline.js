@@ -480,132 +480,87 @@ async saveCookies() {
 
   async collectTweets(scraper) {
     try {
-      const profile = await scraper.getProfile(this.username);
-      const totalExpectedTweets = profile.tweetsCount;
+        const profile = await scraper.getProfile(this.username);
+        const totalExpectedTweets = profile.tweetsCount;
+        Logger.info(`📊 Found ${totalExpectedTweets.toLocaleString()} total tweets for @${this.username}`);
 
-      Logger.info(
-        `📊 Found ${chalk.bold(
-          totalExpectedTweets.toLocaleString()
-        )} total tweets for @${this.username}`
-      );
+        // Get existing collection state
+        const collection_state = await this.dataOrganizer.get_collection_state();
+        const allTweets = new Map();
 
-      const allTweets = new Map();
-      let previousCount = 0;
-      let stagnantBatches = 0;
-      const MAX_STAGNANT_BATCHES = 2;
-
-      // Try main collection first
-      try {
-        const searchResults = scraper.searchTweets(
-          `from:${this.username}`,
-          this.config.twitter.maxTweets,
-          SearchMode.Latest
-        );
-
-        for await (const tweet of searchResults) {
-          if (tweet && !allTweets.has(tweet.id)) {
-            const processedTweet = this.processTweetData(tweet);
-            if (processedTweet) {
-              allTweets.set(tweet.id, processedTweet);
-
-              if (allTweets.size % 100 === 0) {
-                const completion = (
-                  (allTweets.size / totalExpectedTweets) *
-                  100
-                ).toFixed(1);
-                Logger.info(
-                  `📊 Progress: ${allTweets.size.toLocaleString()} unique tweets (${completion}%)`
-                );
-
-                if (allTweets.size === previousCount) {
-                  stagnantBatches++;
-                  if (stagnantBatches >= MAX_STAGNANT_BATCHES) {
-                    Logger.info(
-                      "📝 Collection rate has stagnated, checking fallback..."
-                    );
-                    break;
-                  }
-                } else {
-                  stagnantBatches = 0;
-                }
-                previousCount = allTweets.size;
-              }
-            }
-          }
+        // Load existing tweets
+        const existing_tweets = await this.dataOrganizer.load_existing_tweets();
+        if (existing_tweets.length) {
+            Logger.info(`📥 Resuming collection from ${existing_tweets.length} existing tweets`);
+            existing_tweets.forEach(tweet => allTweets.set(tweet.id, tweet));
         }
-      } catch (error) {
-        if (error.message.includes("rate limit")) {
-          await this.handleRateLimit(this.stats.rateLimitHits + 1);
 
-          // Consider fallback if rate limits are frequent
-          if (
-            this.stats.rateLimitHits >= this.config.twitter.rateLimitThreshold
-          ) {
-            Logger.info("Switching to fallback collection...");
-            const fallbackTweets = await this.collectWithFallback(
-              `from:${this.username}`
+        // 1. First get any new tweets
+        if (collection_state) {
+            Logger.info('🔄 Checking for new tweets...');
+            const newTweetsSearch = scraper.searchTweets(
+                `from:${this.username}`,
+                100,  // Reasonable batch for new tweets
+                SearchMode.Latest
             );
 
-            fallbackTweets.forEach((tweet) => {
-              if (!allTweets.has(tweet.id)) {
+            for await (const tweet of newTweetsSearch) {
+                if (tweet.timestamp <= collection_state.newest_tweet_timestamp) break;
+                
+                if (!allTweets.has(tweet.id)) {
+                    const processedTweet = this.processTweetData(tweet);
+                    if (processedTweet) {
+                        allTweets.set(tweet.id, processedTweet);
+                        Logger.info(`📌 Found new tweet from ${format(new Date(tweet.timestamp), 'yyyy-MM-dd HH:mm')}`);
+                    }
+                }
+            }
+        }
+
+        // 2. Then get older tweets if needed
+        if (allTweets.size < this.config.twitter.maxTweets) {
+            const remaining = this.config.twitter.maxTweets - allTweets.size;
+            Logger.info(`📜 Collecting ${remaining} older tweets (${allTweets.size}/${this.config.twitter.maxTweets} total)...`);
+
+            // Get all existing tweet IDs for better filtering
+            const existing_ids = new Set(Array.from(allTweets.keys()));
+            
+            // Keep track of seen tweets in this batch
+            let new_tweets_count = 0;
+            
+            const olderTweetsSearch = scraper.searchTweets(
+                `from:${this.username}`,
+                this.config.twitter.maxTweets * 2, // Request more to ensure we get enough unique ones
+                SearchMode.Latest
+            );
+
+            for await (const tweet of olderTweetsSearch) {
+                // Skip if we have this tweet
+                if (existing_ids.has(tweet.id)) continue;
+                
                 const processedTweet = this.processTweetData(tweet);
                 if (processedTweet) {
-                  allTweets.set(tweet.id, processedTweet);
-                  this.stats.fallbackUsed = true;
+                    allTweets.set(tweet.id, processedTweet);
+                    existing_ids.add(tweet.id);
+                    new_tweets_count++;
+                    Logger.info(`📜 Found older tweet from ${format(tweet.timestamp, 'yyyy-MM-dd HH:mm')}`);
+                    
+                    // Break if we have enough new tweets
+                    if (new_tweets_count >= remaining) break;
                 }
-              }
-            });
-          }
-        }
-        Logger.warn(`⚠️  Search error: ${error.message}`);
-      }
-
-      // Use fallback for replies if needed
-      if (
-        allTweets.size < Math.min(this.config.twitter.maxTweets, totalExpectedTweets) * 0.8 && 
-        this.config.fallback.enabled
-      ) {
-        Logger.info("\n🔍 Collecting additional tweets via fallback...");
-
-        try {
-          const fallbackTweets = await this.collectWithFallback(
-            `from:${this.username}`
-          );
-          let newTweetsCount = 0;
-
-          fallbackTweets.forEach((tweet) => {
-            if (!allTweets.has(tweet.id)) {
-              const processedTweet = this.processTweetData(tweet);
-              if (processedTweet) {
-                allTweets.set(tweet.id, processedTweet);
-                newTweetsCount++;
-                this.stats.fallbackUsed = true;
-              }
             }
-          });
-
-          if (newTweetsCount > 0) {
-            Logger.info(
-              `Found ${newTweetsCount} additional tweets via fallback`
-            );
-          }
-        } catch (error) {
-          Logger.warn(`⚠️  Fallback collection error: ${error.message}`);
         }
-      }
 
-      Logger.success(
-        `\n🎉 Collection complete! ${allTweets.size.toLocaleString()} unique tweets collected${
-          this.stats.fallbackUsed
-            ? ` (including ${this.stats.fallbackCount} from fallback)`
-            : ""
-        }`
-      );
+        // Final save
+        const finalTweets = Array.from(allTweets.values());
+        await this.dataOrganizer.save_tweet_batch(finalTweets);
 
-      return Array.from(allTweets.values());
+        Logger.success(`\n🎉 Collection complete! ${allTweets.size} unique tweets collected`);
+        return finalTweets;
+
     } catch (error) {
-      Logger.error(`Failed to collect tweets: ${error.message}`);
-      throw error;
+        Logger.error(`Failed to collect tweets: ${error.message}`);
+        throw error;
     }
   }
 

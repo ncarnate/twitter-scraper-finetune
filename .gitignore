@@ -3,3 +3,6 @@ node_modules/
 pipeline/
 characters/
 cookies/
+.DS_Store
+**/ .DS_Store
+dev_note.md
