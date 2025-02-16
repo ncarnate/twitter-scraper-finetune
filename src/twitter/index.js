@@ -1,5 +1,6 @@
 // index.js
 import dotenv from 'dotenv';
+import path from 'path';
 dotenv.config();
 
 import TwitterPipeline from './TwitterPipeline.js';
@@ -15,10 +16,22 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-const args = process.argv.slice(2);
-const username = args[0] || 'degenspartan';
+const raw_args = process.argv.slice(2);
 
-const pipeline = new TwitterPipeline(username);
+let username = 'degenspartan';
+let output_dir = path.join(process.cwd(), '..', 'data');
+
+for (let i = 0; i < raw_args.length; i++) {
+  const arg = raw_args[i];
+  if (!arg.startsWith('--')) {
+    // The first non-flag argument is the username
+    username = arg;
+  } else if (arg === '--output') {
+    output_dir = raw_args[++i] || output_dir;
+  }
+}
+
+const pipeline = new TwitterPipeline(username, output_dir);
 
 const cleanup = async () => {
   Logger.warn('\n🛑 Received termination signal. Cleaning up...');

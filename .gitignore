@@ -1,8 +1,19 @@
+# .gitignore for twitter-scraper
+
+# Environment files
 .env
+.env.local
+.env.*.local
+
+# Node modules
 node_modules/
-pipeline/
-characters/
+
+# Cookies directory
 cookies/
-.DS_Store
-**/ .DS_Store
-dev_note.md
+
+# Logs
+*.log
+
+# Build output (if any)
+dist/
+build/

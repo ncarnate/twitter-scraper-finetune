@@ -6,11 +6,7 @@ import Logger from './Logger.js';
 
 class DataOrganizer {
   constructor(baseDir, username) {
-    this.baseDir = path.join(
-      baseDir,
-      username.toLowerCase(),
-      format(new Date(), 'yyyy-MM-dd')
-    );
+    this.baseDir = path.join(baseDir, username.toLowerCase());
     this.createDirectories();
   }
 
@@ -18,12 +14,12 @@ class DataOrganizer {
    * Creates necessary directories for storing data.
    */
   async createDirectories() {
-    const dirs = ['raw', 'processed', 'analytics', 'exports', 'meta'];
+    const dirs = ['raw', 'analytics'];
     for (const dir of dirs) {
       const fullPath = path.join(this.baseDir, dir);
       try {
         await fs.mkdir(fullPath, { recursive: true });
-        Logger.info(`✅ Created directory: ${path.join(this.baseDir, dir)}`);
+        Logger.info(`✅ Created directory: ${fullPath}`);
       } catch (error) {
         Logger.warn(`⚠️  Failed to create directory ${fullPath}: ${error.message}`);
       }
@@ -37,18 +33,11 @@ class DataOrganizer {
     return {
       raw: {
         tweets: path.join(this.baseDir, 'raw', 'tweets.json'),
-        urls: path.join(this.baseDir, 'raw', 'urls.txt'),
+        metadata: path.join(this.baseDir, 'raw', 'metadata.json'),
       },
       analytics: {
         stats: path.join(this.baseDir, 'analytics', 'stats.json'),
-      },
-      exports: {
-        summary: path.join(this.baseDir, 'exports', 'summary.md'),
-      },
-      meta: {
-        nextToken: path.join(this.baseDir, 'meta', 'next_token.txt'),
-        progress: path.join(this.baseDir, 'meta', 'progress.json'),
-      },
+      }
     };
   }
 
@@ -99,11 +88,6 @@ class DataOrganizer {
       );
       Logger.success(`✅ Saved tweets to ${paths.raw.tweets}`);
 
-      // Save tweet URLs
-      const urls = tweets.map((t) => t.permanentUrl);
-      await fs.writeFile(paths.raw.urls, urls.join('\n'), 'utf-8');
-      Logger.success(`✅ Saved tweet URLs to ${paths.raw.urls}`);
-
       // Generate and save analytics
       const analytics = this.generateAnalytics(tweets);
       await fs.writeFile(
@@ -113,14 +97,9 @@ class DataOrganizer {
       );
       Logger.success(`✅ Saved analytics to ${paths.analytics.stats}`);
 
-      // Generate and save summary
-      const summary = this.generateSummary(tweets, analytics);
-      await fs.writeFile(paths.exports.summary, summary, 'utf-8');
-      Logger.success(`✅ Saved summary to ${paths.exports.summary}`);
-
-      // Save collection progress
+      // Save metadata
       await fs.writeFile(
-        paths.meta.progress,
+        paths.raw.metadata,
         JSON.stringify({
           last_tweet_id: tweets[tweets.length - 1]?.id,
           last_tweet_date: tweets[tweets.length - 1]?.timestamp,
@@ -316,9 +295,9 @@ Raw data, analytics, and exports can be found in:
       'utf-8'
     );
 
-    // Save collection progress
+    // Save collection metadata (replaces old meta/progress path)
     await fs.writeFile(
-      this.getPaths().meta.progress,
+      this.getPaths().raw.metadata,
       JSON.stringify({
         last_tweet_id: merged[merged.length - 1]?.id,
         last_tweet_date: merged[merged.length - 1]?.timestamp,

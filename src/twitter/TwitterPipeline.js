@@ -23,9 +23,9 @@ puppeteer.use(StealthPlugin());
 puppeteer.use(AdblockerPlugin({ blockTrackers: true }));
 
 class TwitterPipeline {
-  constructor(username) {
+  constructor(username, dataDir) {
     this.username = username;
-    this.dataOrganizer = new DataOrganizer("pipeline", username);
+    this.dataOrganizer = new DataOrganizer(dataDir, username);
     this.paths = this.dataOrganizer.getPaths();
     this.tweetFilter = new TweetFilter();
 
@@ -564,39 +564,29 @@ async saveCookies() {
     }
   }
 
+  // Updated showSampleTweets function that logs sample tweets automatically
   async showSampleTweets(tweets) {
-    const { showSample } = await inquirer.prompt([
-      {
-        type: "confirm",
-        name: "showSample",
-        message: "Would you like to see a sample of collected tweets?",
-        default: true,
-      },
-    ]);
+    Logger.info("\n🌟 Sample Tweets (Most Engaging):");
 
-    if (showSample) {
-      Logger.info("\n🌟 Sample Tweets (Most Engaging):");
+    const sorted_tweets = tweets
+      .filter(tweet => !tweet.isRetweet)
+      .sort((a, b) => (b.likes + b.retweetCount) - (a.likes + a.retweetCount))
+      .slice(0, 5);
 
-      const sortedTweets = tweets
-        .filter((tweet) => !tweet.isRetweet)
-        .sort((a, b) => b.likes + b.retweetCount - (a.likes + a.retweetCount))
-        .slice(0, 5);
-
-      sortedTweets.forEach((tweet, i) => {
-        console.log(
-          chalk.cyan(
-            `\n${i + 1}. [${format(new Date(tweet.timestamp), "yyyy-MM-dd")}]`
-          )
-        );
-        console.log(chalk.white(tweet.text));
-        console.log(
-          chalk.gray(
-            `❤️ ${tweet.likes.toLocaleString()} | 🔄 ${tweet.retweetCount.toLocaleString()} | 💬 ${tweet.replies.toLocaleString()}`
-          )
-        );
-        console.log(chalk.gray(`🔗 ${tweet.permanentUrl}`));
-      });
-    }
+    sorted_tweets.forEach((tweet, i) => {
+      console.log(
+        chalk.cyan(
+          `\n${i + 1}. [${format(new Date(tweet.timestamp), "yyyy-MM-dd")}]`
+        )
+      );
+      console.log(chalk.white(tweet.text));
+      console.log(
+        chalk.gray(
+          `❤️ ${tweet.likes.toLocaleString()} | 🔄 ${tweet.retweetCount.toLocaleString()} | 💬 ${tweet.replies.toLocaleString()}`
+        )
+      );
+      console.log(chalk.gray(`🔗 ${tweet.permanentUrl}`));
+    });
   }
 
   async getProfile() {
@@ -772,7 +762,7 @@ async saveCookies() {
 
     const errorLogPath = path.join(
       this.dataOrganizer.baseDir,
-      "meta",
+      "raw",
       "error_log.json"
     );
 
